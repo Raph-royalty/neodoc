@@ -1,0 +1,12 @@
+Session: 2026-05-06T15:34:45.011293
+Model:   qwen3.5:0.8b
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-06T15:34:54.240263
+  You:       which patients did I see today?
+  Tool:      get_patients_today({})
+  Result:    [RECORDS] 1 patient(s) for shift 'all' on 2026-05-06:
+  • John at 15:31 — Consulted today at 3pm
+  Assistant: I see that on 2026-05-06, 1 patient was seen during the shift: John. He was seen at 3pm today. Is there anything specific you need help with today?
+

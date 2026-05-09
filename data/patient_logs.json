@@ -1,0 +1,18 @@
+[
+  {
+    "id": "399be47e-8aa9-4e3f-8d37-e52af89e1f10",
+    "patient_name": "John",
+    "note": "Consulted today at 3pm",
+    "time": "15:31",
+    "date": "2026-05-06",
+    "logged_at": "2026-05-06T15:31:31.125947"
+  },
+  {
+    "id": "d1ded3e7-f56d-4443-b867-0b1265ccbc89",
+    "patient_name": "Mary",
+    "note": "Consulted patient",
+    "time": "15:59",
+    "date": "2026-05-06",
+    "logged_at": "2026-05-06T15:59:18.263520"
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "session_start": "2026-05-06T15:58:52.180804",
+  "model": "qwen3.5:0.8b",
+  "turns": [
+    {
+      "timestamp": "2026-05-06T15:59:14.957290",
+      "user_input": "Add to my log that I have consulted Mary right now",
+      "tool_calls": [
+        {
+          "tool": "log_patient",
+          "args": {
+            "patient_name": "Mary",
+            "note": "Consulted patient"
+          },
+          "result": "[LOGGED] Patient 'Mary' saved at 15:59 on 2026-05-06. Note: Consulted patient (id: d1ded3e7-f56d-4443-b867-0b1265ccbc89)"
+        }
+      ],
+      "final_reply": "I have successfully logged your consultation with Mary today at 15:59."
+    }
+  ]
+}

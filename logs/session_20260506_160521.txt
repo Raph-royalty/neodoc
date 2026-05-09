@@ -1,0 +1,11 @@
+Session: 2026-05-06T15:58:52.180804
+Model:   qwen3.5:0.8b
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-06T15:59:14.957290
+  You:       Add to my log that I have consulted Mary right now
+  Tool:      log_patient({'patient_name': 'Mary', 'note': 'Consulted patient'})
+  Result:    [LOGGED] Patient 'Mary' saved at 15:59 on 2026-05-06. Note: Consulted patient (id: d1ded3e7-f56d-4443-b867-0b1265ccbc89)
+  Assistant: I have successfully logged your consultation with Mary today at 15:59.
+

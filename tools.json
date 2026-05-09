@@ -1,0 +1,110 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "log_patient",
+      "description": "Log a patient visit or clinical note. Use when the user wants to record a patient interaction, symptom, or observation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patient_name": {
+            "type": "string",
+            "description": "Name or identifier of the patient (e.g. 'Mary', 'Bed 4')"
+          },
+          "note": {
+            "type": "string",
+            "description": "Clinical note or description of the visit/symptom"
+          },
+          "time": {
+            "type": "string",
+            "description": "Time of the visit, e.g. '3pm' or '15:00'. Defaults to now if not specified."
+          }
+        },
+        "required": ["patient_name", "note"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_patients_today",
+      "description": "Retrieve the list of patients seen today or during a specific shift. Use when the user asks who they saw, their patient list, or wants a recall of visits.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "shift": {
+            "type": "string",
+            "enum": ["morning", "afternoon", "evening", "all"],
+            "description": "Which shift to retrieve patients for. Defaults to 'all'."
+          }
+        },
+        "required": []
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "set_reminder",
+      "description": "Set a timed reminder or alert for the clinician. Use when the user says 'remind me', 'check on', or 'alert me in X minutes/hours'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "What the reminder is about, e.g. 'Check on patient in Bed 4'"
+          },
+          "delay_minutes": {
+            "type": "integer",
+            "description": "How many minutes from now to trigger the reminder"
+          }
+        },
+        "required": ["message", "delay_minutes"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "query_drug_info",
+      "description": "Look up drug dosage, interactions, or clinical information. Use when the user asks about medication doses, drug names, or prescribing guidance.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "drug_name": {
+            "type": "string",
+            "description": "Name of the drug, e.g. 'amoxicillin', 'paracetamol'"
+          },
+          "query_type": {
+            "type": "string",
+            "enum": ["dosage", "interactions", "side_effects", "general"],
+            "description": "The type of information needed"
+          },
+          "patient_context": {
+            "type": "string",
+            "description": "Optional context such as patient age or weight, e.g. 'child aged 5', 'adult 70kg'"
+          }
+        },
+        "required": ["drug_name", "query_type"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "summarise_shift",
+      "description": "Generate a handover summary of the current shift's notes and patient visits. Use when the user asks for a shift summary, handover notes, or end-of-shift report.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": ["brief", "detailed", "handover"],
+            "description": "The style of summary. 'handover' is formatted for the next shift."
+          }
+        },
+        "required": []
+      }
+    }
+  }
+]
