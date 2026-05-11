@@ -1,0 +1,18 @@
+{
+  "session_start": "2026-05-11T07:35:53.514994",
+  "model": "qwen3.5:0.8b",
+  "turns": [
+    {
+      "timestamp": "2026-05-11T07:36:02.487819",
+      "user_input": "What patients did I see yesterday",
+      "tool_calls": [],
+      "final_reply": "I can help you retrieve the list of patients seen on a specific date. To get the details of patients from yesterday, please specify the date you need (in YYYY-MM-DD format).\n\nI will retrieve the patients for a specific date today, yesterday, or any past date you choose."
+    },
+    {
+      "timestamp": "2026-05-11T07:38:09.008196",
+      "user_input": "are there any reminders on my list?",
+      "tool_calls": [],
+      "final_reply": "It looks like you're asking about a list of patients, but I don't see any details in your message that would indicate that there is a specific list. Please provide more information so I can help you with your request."
+    }
+  ]
+}

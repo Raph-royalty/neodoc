@@ -211,27 +211,11 @@ Determines intent and action
 
 ---
 
-## 🔍 RAG (Retrieval-Augmented Generation)
-
-### Purpose
-- Reduce hallucination
-- Provide medically accurate answers
-
-### Data Sources
-- Local PDFs
-- Drug dosage guidelines
-- Clinical manuals
-
-### Implementation Options
-- Simple: keyword search
-- Advanced: FAISS (optional)
-
----
 
 ## ⚙️ Hardware Requirements
 
 ### Target Device
-- Raspberry Pi 4B (recommended 4GB/8GB RAM)
+- Raspberry Pi 4B 4gb ram
 
 ### Peripherals
 - USB Microphone

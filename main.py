@@ -7,18 +7,30 @@ Tool output (patient logs, reminders) is persisted to JSON files under data/.
 
 Usage:
     python main.py                         # Default model
-    python main.py --model granite3.2:3b   # Different model
+    python main.py --model qwen3.5:0.8b   # Different model
     python main.py --list-tools            # Show available tools
 """
 
 import argparse
+import io
 import json
+import tempfile
+import re
+import sqlite3
+import subprocess
 import sys
 import uuid
+import wave
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import ollama
+
+try:
+    from piper.voice import PiperVoice
+    _PIPER_AVAILABLE = True
+except ImportError:
+    _PIPER_AVAILABLE = False
 
 # ─────────────────────────────────────────────
 # Configuration
@@ -29,6 +41,8 @@ DEFAULT_MODEL = "qwen3.5:0.8b"
 LOGS_DIR = Path("logs")
 DATA_DIR = Path("data")
 TOOLS_FILE = Path("tools.json")
+VOICES_DIR = Path("voices")
+DEFAULT_VOICE = VOICES_DIR / "en_US-lessac-medium.onnx"
 
 SYSTEM_PROMPT = """You are a clinical assistant helping nurses and doctors in a ward setting.
 You have access to tools for logging patient visits, retrieving records,
@@ -54,33 +68,86 @@ TOOLS = load_tools()
 
 
 # ─────────────────────────────────────────────
-# JSON Database Helpers
+# Text-to-Speech (Piper)
 # ─────────────────────────────────────────────
 
-PATIENT_LOGS_FILE = DATA_DIR / "patient_logs.json"
-REMINDERS_FILE    = DATA_DIR / "reminders.json"
+_piper_voice = None  # lazy-loaded singleton
+
+def _load_piper_voice():
+    """Load the Piper voice model once and cache it."""
+    global _piper_voice
+    if _piper_voice is not None:
+        return _piper_voice
+    if not _PIPER_AVAILABLE:
+        return None
+    if not DEFAULT_VOICE.exists():
+        print(f"[TTS] Voice model not found at {DEFAULT_VOICE}. TTS disabled.")
+        return None
+    try:
+        _piper_voice = PiperVoice.load(str(DEFAULT_VOICE))
+        return _piper_voice
+    except Exception as e:
+        print(f"[TTS] Failed to load voice: {e}")
+        return None
 
 
-def _read_json(path: Path) -> list:
-    """Read a JSON array from a file, returning [] if missing or empty."""
-    if not path.exists() or path.stat().st_size == 0:
-        return []
-    with open(path, "r") as f:
-        return json.load(f)
+def speak(text: str):
+    """Synthesise text and play it through the default audio output."""
+    voice = _load_piper_voice()
+    if voice is None:
+        return
+    try:
+        # Write WAV to a temp file; afplay requires a real file path
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+            with wave.open(tmp_path, "wb") as wav_file:
+                wav_file.setnchannels(1)      # mono
+                wav_file.setsampwidth(2)      # 16-bit PCM
+                wav_file.setframerate(voice.config.sample_rate)
+                voice.synthesize(text, wav_file)
+        # Play synchronously then remove the temp file
+        subprocess.run(
+            ["afplay", tmp_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+        )
+        Path(tmp_path).unlink(missing_ok=True)
+    except Exception as e:
+        print(f"[TTS] Playback error: {e}")
 
 
-def _write_json(path: Path, data: list):
-    """Write a JSON array to a file, creating parent dirs as needed."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+# ─────────────────────────────────────────────
+# Database Helpers
+# ─────────────────────────────────────────────
 
+DB_FILE = DATA_DIR / "neodoc.db"
 
-def _append_json(path: Path, record: dict):
-    """Append a single record to a JSON array file."""
-    records = _read_json(path)
-    records.append(record)
-    _write_json(path, records)
+def init_db():
+    """Initialize SQLite database and create tables if they don't exist."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_FILE) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS patient_logs (
+                id TEXT PRIMARY KEY,
+                patient_name TEXT,
+                note TEXT,
+                time TEXT,
+                date TEXT,
+                logged_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS reminders (
+                id TEXT PRIMARY KEY,
+                message TEXT,
+                delay_minutes INTEGER,
+                created_at TEXT,
+                trigger_at TEXT,
+                completed INTEGER
+            )
+        """)
+
 
 
 # Shift time boundaries (24-h)
@@ -90,6 +157,25 @@ _SHIFT_HOURS = {
     "evening":   (18, 24),
     "all":       (0,  24),
 }
+
+
+def resolve_date(date_arg: str | None) -> str:
+    """
+    Resolve a date argument to a YYYY-MM-DD string.
+    Accepts: None / 'today' → today, 'yesterday' → yesterday,
+             or any YYYY-MM-DD string (returned as-is).
+    """
+    now = datetime.now()
+    if not date_arg or date_arg.lower() == "today":
+        return now.strftime("%Y-%m-%d")
+    if date_arg.lower() == "yesterday":
+        return (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    # Validate ISO format; fall back to today on parse error
+    try:
+        datetime.strptime(date_arg, "%Y-%m-%d")
+        return date_arg
+    except ValueError:
+        return now.strftime("%Y-%m-%d")
 
 
 # ─────────────────────────────────────────────
@@ -114,7 +200,11 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
             "date":         now.strftime("%Y-%m-%d"),
             "logged_at":    now.isoformat()
         }
-        _append_json(PATIENT_LOGS_FILE, record)
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.execute(
+                "INSERT INTO patient_logs (id, patient_name, note, time, date, logged_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (record["id"], record["patient_name"], record["note"], record["time"], record["date"], record["logged_at"])
+            )
         return (
             f"[LOGGED] Patient '{record['patient_name']}' saved at {visit_time} "
             f"on {record['date']}. Note: {record['note']} (id: {record['id']})"
@@ -123,14 +213,16 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
     # ── get_patients_today ────────────────────────────────────────────
     elif tool_name == "get_patients_today":
         shift = tool_args.get("shift", "all")
-        today = now.strftime("%Y-%m-%d")
+        query_date = resolve_date(tool_args.get("date"))
         start_h, end_h = _SHIFT_HOURS.get(shift, (0, 24))
 
-        all_logs = _read_json(PATIENT_LOGS_FILE)
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM patient_logs WHERE date = ?", (query_date,)).fetchall()
+
         filtered = []
-        for entry in all_logs:
-            if entry.get("date") != today:
-                continue
+        for row in rows:
+            entry = dict(row)
             # Parse hour from stored time ("HH:MM" or freeform like "3pm")
             try:
                 hour = datetime.strptime(entry["time"], "%H:%M").hour
@@ -140,9 +232,9 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
                 filtered.append(entry)
 
         if not filtered:
-            return f"[RECORDS] No patients found for shift '{shift}' on {today}."
+            return f"[RECORDS] No patients found for shift '{shift}' on {query_date}."
 
-        lines = [f"[RECORDS] {len(filtered)} patient(s) for shift '{shift}' on {today}:"]
+        lines = [f"[RECORDS] {len(filtered)} patient(s) for shift '{shift}' on {query_date}:"]
         for e in filtered:
             lines.append(f"  • {e['patient_name']} at {e['time']} — {e['note']}")
         return "\n".join(lines)
@@ -157,41 +249,39 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
             "delay_minutes": delay,
             "created_at":   now.isoformat(),
             "trigger_at":   trigger_at.isoformat(),
-            "completed":    False
+            "completed":    0
         }
-        _append_json(REMINDERS_FILE, record)
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.execute(
+                "INSERT INTO reminders (id, message, delay_minutes, created_at, trigger_at, completed) VALUES (?, ?, ?, ?, ?, ?)",
+                (record["id"], record["message"], record["delay_minutes"], record["created_at"], record["trigger_at"], record["completed"])
+            )
         return (
             f"[REMINDER SET] '{record['message']}' in {delay} min "
             f"(triggers at {trigger_at.strftime('%H:%M')}). id: {record['id']}"
         )
 
-    # ── query_drug_info ───────────────────────────────────────────────
-    elif tool_name == "query_drug_info":
-        # TODO: replace with local drug reference DB / RAG
-        context = tool_args.get("patient_context", "adult")
-        return (
-            f"[DRUG INFO — STUB] {tool_args['drug_name'].capitalize()} / "
-            f"{tool_args['query_type']} / context: {context}. "
-            "Drug reference DB not yet implemented — use clinical guidelines."
-        )
-
     # ── summarise_shift ───────────────────────────────────────────────
     elif tool_name == "summarise_shift":
         fmt = tool_args.get("format", "brief")
-        today = now.strftime("%Y-%m-%d")
-        all_logs = _read_json(PATIENT_LOGS_FILE)
-        today_logs = [e for e in all_logs if e.get("date") == today]
+        query_date = resolve_date(tool_args.get("date"))
 
-        if not today_logs:
-            return f"[SHIFT SUMMARY] No patient records found for today ({today})."
+        with sqlite3.connect(DB_FILE) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM patient_logs WHERE date = ?", (query_date,)).fetchall()
 
-        header = f"[SHIFT SUMMARY — {fmt.upper()}] {today} | {len(today_logs)} patient(s):"
+        day_logs = [dict(row) for row in rows]
+
+        if not day_logs:
+            return f"[SHIFT SUMMARY] No patient records found for {query_date}."
+
+        header = f"[SHIFT SUMMARY — {fmt.upper()}] {query_date} | {len(day_logs)} patient(s):"
         if fmt == "brief":
-            names = ", ".join(e["patient_name"] for e in today_logs)
+            names = ", ".join(e["patient_name"] for e in day_logs)
             return f"{header} {names}"
         else:
             lines = [header]
-            for e in today_logs:
+            for e in day_logs:
                 lines.append(f"  • [{e['time']}] {e['patient_name']} — {e['note']}")
             return "\n".join(lines)
 
@@ -334,16 +424,23 @@ def main():
                         help=f"Ollama model to use (default: {DEFAULT_MODEL})")
     parser.add_argument("--list-tools", action="store_true",
                         help="Print available tools and exit")
+    parser.add_argument("--no-tts", action="store_true",
+                        help="Disable text-to-speech output")
     args = parser.parse_args()
 
     if args.list_tools:
         list_tools()
         sys.exit(0)
 
+    init_db()
+
+    tts_enabled = not args.no_tts and _PIPER_AVAILABLE and DEFAULT_VOICE.exists()
+
     print(f"\n{'─'*55}")
     print(f"  Clinical AI Tool Tester")
     print(f"  Model : {args.model}")
     print(f"  Logs  : ./{LOGS_DIR}/")
+    print(f"  TTS   : {'enabled (Piper)' if tts_enabled else 'disabled'}")
     print(f"{'─'*55}")
     print("  Type your prompt and press Enter.")
     print("  Commands: 'quit' to exit | 'clear' to reset history")
@@ -383,6 +480,9 @@ def main():
                     print(f"     → {tc['result']}")
 
             print(f"\nAssistant: {reply}\n")
+
+            if tts_enabled:
+                speak(reply)
 
     finally:
         if session_log["turns"]:

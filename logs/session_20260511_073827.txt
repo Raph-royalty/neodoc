@@ -1,0 +1,15 @@
+Session: 2026-05-11T07:35:53.514994
+Model:   qwen3.5:0.8b
+Turns:   2
+============================================================
+
+[Turn 1] 2026-05-11T07:36:02.487819
+  You:       What patients did I see yesterday
+  Assistant: I can help you retrieve the list of patients seen on a specific date. To get the details of patients from yesterday, please specify the date you need (in YYYY-MM-DD format).
+
+I will retrieve the patients for a specific date today, yesterday, or any past date you choose.
+
+[Turn 2] 2026-05-11T07:38:09.008196
+  You:       are there any reminders on my list?
+  Assistant: It looks like you're asking about a list of patients, but I don't see any details in your message that would indicate that there is a specific list. Please provide more information so I can help you with your request.
+
