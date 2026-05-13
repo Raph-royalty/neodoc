@@ -1,0 +1,20 @@
+{
+  "session_start": "2026-05-13T23:34:15.179689",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-13T23:34:26.292699",
+      "user_input": "What patience is there if today?",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "today"
+          },
+          "result": "[RECORDS] 1 patient(s) for shift 'all' on 2026-05-13:\n  \u2022 John at 22:01 \u2014 Today at 3pm"
+        }
+      ],
+      "final_reply": "Today there are 1 patients seen. The current time is 3pm."
+    }
+  ]
+}

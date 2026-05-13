@@ -1,0 +1,12 @@
+Session: 2026-05-13T23:56:50.851788
+Model:   granite4:350m
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-13T23:57:27.581419
+  You:       Who did I sit today?
+  Tool:      get_patients_today({'date': 'today'})
+  Result:    [RECORDS] 1 patient(s) for shift 'all' on 2026-05-13:
+  • John at 22:01 — Today at 3pm
+  Assistant: You saw John today.
+

@@ -1,0 +1,64 @@
+{
+  "session_start": "2026-05-14T00:04:15.061091",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-14T00:04:28.659298",
+      "user_input": "a new patient.",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "shift": "all"
+          },
+          "result": "[RECORDS] No patients found for shift 'all' on 2026-05-14."
+        }
+      ],
+      "final_reply": "No patients found for shift 'all' on 2026-05-14."
+    },
+    {
+      "timestamp": "2026-05-14T00:04:51.994363",
+      "user_input": "and your patient, Jen.",
+      "tool_calls": [
+        {
+          "tool": "log_patient",
+          "args": {
+            "note": "A new patient in room 12.",
+            "patient_name": "Jen"
+          },
+          "result": "[LOGGED] Patient 'Jen' saved at 00:04 on 2026-05-14. Note: A new patient in room 12. (id: a2109bd2-a566-466e-b9cc-80ca4b9affdd)"
+        }
+      ],
+      "final_reply": "Your patient, Jen, has been logged today. Please check the note for more details."
+    },
+    {
+      "timestamp": "2026-05-14T00:05:16.861830",
+      "user_input": "log and patient, Jane, she has a fever and she is in room 12.",
+      "tool_calls": [
+        {
+          "tool": "log_patient",
+          "args": {
+            "patient_name": "Jane",
+            "note": "Fever detected"
+          },
+          "result": "[LOGGED] Patient 'Jane' saved at 00:05 on 2026-05-14. Note: Fever detected (id: 7c7f5742-8a98-4e52-954e-281425b9d475)"
+        }
+      ],
+      "final_reply": "Your patient, Jane, has been logged today. Please check the note for more details."
+    },
+    {
+      "timestamp": "2026-05-14T00:05:48.079502",
+      "user_input": "what patients have I seen today?",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "today"
+          },
+          "result": "[RECORDS] 2 patient(s) for shift 'all' on 2026-05-14:\n  \u2022 Jen at 00:04 \u2014 A new patient in room 12.\n  \u2022 Jane at 00:05 \u2014 Fever detected"
+        }
+      ],
+      "final_reply": "You saw these patients today: Jen, Jane."
+    }
+  ]
+}

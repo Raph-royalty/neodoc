@@ -299,34 +299,42 @@ def speak(text: str):
                 wav_file.setframerate(voice.config.sample_rate)
                 voice.synthesize(text, wav_file)
 
-        player = None
+        players = []
         if sys.platform == "darwin":
-            player = shutil.which("afplay")
+            p = shutil.which("afplay")
+            if p: players.append(p)
         else:
-            player = (
-                shutil.which("pw-play")
-                or shutil.which("paplay")
-                or shutil.which("aplay")
-                or shutil.which("play")
-            )
+            for p_name in ["pw-play", "paplay", "aplay", "play"]:
+                p = shutil.which(p_name)
+                if p: players.append(p)
 
-        if player is None:
-            raise FileNotFoundError("No audio player found (tried afplay/aplay/paplay/play).")
+        if not players:
+            raise FileNotFoundError("No audio player found (tried afplay/pw-play/paplay/aplay/play).")
 
-        cmd = [player, tmp_path]
-        if os.path.basename(player) == "aplay":
-            device = os.getenv("NEODOC_AUDIO_DEVICE")
-            cmd = [player, "-q"]
-            if device:
-                cmd.extend(["-D", device])
-            cmd.append(tmp_path)
+        last_err = None
+        for player in players:
+            cmd = [player, tmp_path]
+            if os.path.basename(player) == "aplay":
+                device = os.getenv("NEODOC_AUDIO_DEVICE")
+                cmd = [player, "-q"]
+                if device:
+                    cmd.extend(["-D", device])
+                cmd.append(tmp_path)
 
-        subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-        )
+            try:
+                subprocess.run(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=True,
+                )
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+
+        if last_err is not None:
+            raise last_err
     except Exception as e:
         print(f"[TTS] Playback error: {e}")
     finally:

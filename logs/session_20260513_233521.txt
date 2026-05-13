@@ -1,0 +1,12 @@
+Session: 2026-05-13T23:34:15.179689
+Model:   granite4:350m
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-13T23:34:26.292699
+  You:       What patience is there if today?
+  Tool:      get_patients_today({'date': 'today'})
+  Result:    [RECORDS] 1 patient(s) for shift 'all' on 2026-05-13:
+  • John at 22:01 — Today at 3pm
+  Assistant: Today there are 1 patients seen. The current time is 3pm.
+
