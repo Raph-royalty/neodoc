@@ -1,0 +1,20 @@
+{
+  "session_start": "2026-05-11T15:13:53.143810",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-11T15:13:53.143949",
+      "user_input": "what patients did I see today. Tell me the names",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "today"
+          },
+          "result": "[RECORDS] 1 patient(s) for shift 'all' on 2026-05-11:\n  \u2022 Janet at 06:28 \u2014 Yesterday's visit"
+        }
+      ],
+      "final_reply": "You saw Janet today."
+    }
+  ]
+}

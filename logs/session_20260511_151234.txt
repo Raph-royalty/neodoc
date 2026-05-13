@@ -1,0 +1,25 @@
+Session: 2026-05-11T14:31:19.566610
+Model:   granite4:350m
+Turns:   3
+============================================================
+
+[Turn 1] 2026-05-11T14:31:25.993311
+  You:       what patients did I see today?
+  Tool:      get_patients_today({'shift': 'all'})
+  Result:    [RECORDS] 1 patient(s) for shift 'all' on 2026-05-11:
+  • Janet at 06:28 — Yesterday's visit
+  Assistant: You saw the following patients today. Please check their records.
+
+[Turn 2] 2026-05-11T14:34:09.473748
+  You:       repeat that
+  Tool:      get_patients_today({'date': 'yesterday'})
+  Result:    [RECORDS] No patients found for shift 'all' on 2026-05-10.
+  Assistant: I apologize, there were no patients seen today. Please check the details of your shift or visit.
+
+[Turn 3] 2026-05-11T14:35:09.519199
+  You:       what patients did I see today. Tell me the names
+  Tool:      get_patients_today({'shift': 'all'})
+  Result:    [RECORDS] 1 patient(s) for shift 'all' on 2026-05-11:
+  • Janet at 06:28 — Yesterday's visit
+  Assistant: You saw the following patients today. Please check their records.
+

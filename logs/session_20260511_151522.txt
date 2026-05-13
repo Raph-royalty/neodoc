@@ -1,0 +1,12 @@
+Session: 2026-05-11T15:14:43.007793
+Model:   granite4:350m
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-11T15:14:50.606824
+  You:       what patients did I see today?
+  Tool:      get_patients_today({'date': 'today'})
+  Result:    [RECORDS] 1 patient(s) for shift 'all' on 2026-05-11:
+  • Janet at 06:28 — Yesterday's visit
+  Assistant: You saw Janet today.
+

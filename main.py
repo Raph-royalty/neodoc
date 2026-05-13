@@ -21,6 +21,8 @@ import sqlite3
 import subprocess
 import shutil
 import sys
+import threading
+import queue
 import uuid
 import wave
 from datetime import datetime, timedelta
@@ -151,6 +153,82 @@ def speak(text: str):
     finally:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
+
+
+class SpeechQueue:
+    """Background speech queue so TTS doesn't block response streaming."""
+
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self._queue: "queue.Queue[str | None]" = queue.Queue()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if not self.enabled or self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def say(self, text: str) -> None:
+        if not self.enabled:
+            return
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return
+        self._queue.put(cleaned)
+
+    def close(self) -> None:
+        if not self.enabled:
+            return
+        self._queue.put(None)
+        if self._thread is not None:
+            self._thread.join(timeout=10)
+
+    def _run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            speak(item)
+
+
+_STREAM_SPEAK_BOUNDARY_RE = re.compile(r"(?:(?<=[.!?])\s+)|\n+")
+_PATIENT_BULLET_RE = re.compile(r"^\s*•\s*(.+?)\s+at\s+", re.MULTILINE)
+
+
+def _drain_speakable_segments(buffer: str) -> tuple[list[str], str]:
+    """Split a growing text buffer into speakable segments + remainder."""
+    segments: list[str] = []
+    while True:
+        match = _STREAM_SPEAK_BOUNDARY_RE.search(buffer)
+        if not match:
+            break
+        end = match.end()
+        segment = buffer[:end].strip()
+        if segment:
+            segments.append(segment)
+        buffer = buffer[end:]
+    return segments, buffer
+
+
+def _user_is_asking_for_patient_list(user_input: str) -> bool:
+    text = (user_input or "").lower()
+    return bool(re.search(r"\b(who|names?|list|patients?)\b", text))
+
+
+def _reply_from_get_patients_tool_result(result: str) -> str:
+    if not result:
+        return "[RECORDS] No patient records found."
+    if "No patients found" in result:
+        # Already user-friendly enough.
+        return result.replace("[RECORDS] ", "").strip()
+    names = [n.strip() for n in _PATIENT_BULLET_RE.findall(result) if n.strip()]
+    if not names:
+        # Fall back to echoing tool output if parsing fails.
+        return result.replace("[RECORDS] ", "").strip()
+    if len(names) == 1:
+        return f"You saw {names[0]} today."
+    return "You saw these patients today: " + ", ".join(names) + "."
 
 
 # ─────────────────────────────────────────────
@@ -330,14 +408,42 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
 # Ollama API
 # ─────────────────────────────────────────────
 
-def call_ollama(messages: list, model: str) -> ollama.ChatResponse:
-    """Send messages to Ollama using the ollama package and return the response."""
+def call_ollama(
+    messages: list,
+    model: str,
+    *,
+    stream: bool = False,
+    on_chunk=None,
+) -> tuple[str, list]:
+    """Send messages to Ollama; returns (content, tool_calls)."""
     try:
-        return ollama.chat(
+        if not stream:
+            response = ollama.chat(
+                model=model,
+                messages=messages,
+                tools=TOOLS,
+            )
+            msg = response.message
+            return (msg.content or ""), (msg.tool_calls or [])
+
+        content_parts: list[str] = []
+        tool_calls: list = []
+        for part in ollama.chat(
             model=model,
             messages=messages,
             tools=TOOLS,
-        )
+            stream=True,
+        ):
+            msg = part.message
+            if msg.content:
+                content_parts.append(msg.content)
+                if on_chunk is not None:
+                    on_chunk(msg.content)
+            if msg.tool_calls:
+                tool_calls = list(msg.tool_calls)
+
+        return "".join(content_parts), tool_calls
+
     except ollama.ResponseError as e:
         print(f"\n[ERROR] Ollama returned an error: {e.error}")
         sys.exit(1)
@@ -350,7 +456,14 @@ def call_ollama(messages: list, model: str) -> ollama.ChatResponse:
         sys.exit(1)
 
 
-def run_turn(user_input: str, history: list, model: str) -> tuple[str, list, dict]:
+def run_turn(
+    user_input: str,
+    history: list,
+    model: str,
+    *,
+    stream: bool = False,
+    speech: SpeechQueue | None = None,
+) -> tuple[str, list, dict]:
     """
     Run one full turn: user prompt → model → tool call(s) → final reply.
     Returns (final_reply, updated_history, turn_log_dict).
@@ -365,25 +478,61 @@ def run_turn(user_input: str, history: list, model: str) -> tuple[str, list, dic
     }
 
     # ── First model call ──────────────────────────────────────────────
-    response = call_ollama(history, model)
-    message = response.message
-    tool_calls = message.tool_calls or []
+    first_content = ""
+    first_tool_calls: list = []
+
+    if stream:
+        # Stream direct answers (no-tool turns) for faster UI/TTS.
+        streamed_any = False
+        tts_buffer = ""
+
+        def on_first_chunk(delta: str):
+            nonlocal streamed_any, tts_buffer
+            if not streamed_any:
+                print("\nAssistant: ", end="", flush=True)
+                streamed_any = True
+            print(delta, end="", flush=True)
+            if speech is not None and speech.enabled:
+                tts_buffer += delta
+                segments, remainder = _drain_speakable_segments(tts_buffer)
+                tts_buffer = remainder
+                for seg in segments:
+                    speech.say(seg)
+
+        first_content, first_tool_calls = call_ollama(history, model, stream=True, on_chunk=on_first_chunk)
+        if streamed_any:
+            # Flush any leftover text to speech.
+            if speech is not None and speech.enabled and tts_buffer.strip():
+                speech.say(tts_buffer.strip())
+            print("\n")
+    else:
+        first_content, first_tool_calls = call_ollama(history, model, stream=False)
+
+    tool_calls = first_tool_calls
 
     if not tool_calls:
         # No tool needed — direct answer
-        reply = message.content or "[No response]"
+        reply = first_content or "[No response]"
         history.append({"role": "assistant", "content": reply})
         turn_log["final_reply"] = reply
+
+        # If we didn't stream, speak the whole reply at once.
+        if (not stream) and (speech is not None) and speech.enabled:
+            speech.say(reply)
         return reply, history, turn_log
 
     # ── Tool execution loop ───────────────────────────────────────────
-    history.append({"role": "assistant", "content": None, "tool_calls": tool_calls})
+    history.append({"role": "assistant", "content": first_content or "", "tool_calls": tool_calls})
+
+    tool_results_by_name: dict[str, list[str]] = {}
 
     for tc in tool_calls:
         tool_name = tc.function.name
         tool_args = tc.function.arguments or {}
 
         result = execute_tool(tool_name, tool_args)
+
+        tool_results_by_name.setdefault(tool_name, []).append(result)
 
         # Log the tool call
         turn_log["tool_calls"].append({
@@ -395,12 +544,62 @@ def run_turn(user_input: str, history: list, model: str) -> tuple[str, list, dic
         # Feed result back to model
         history.append({
             "role": "tool",
-            "content": result
+            "content": result,
+            "tool_name": tool_name,
         })
 
+        # Speak tool output immediately (so names/details are read even before the final reply).
+        if (speech is not None) and speech.enabled:
+            speech.say(result)
+
+        # Also show tool output immediately in the console.
+        print(f"\n  ⚙  {tool_name}  args={tool_args}")
+        print(f"     → {result}")
+
     # ── Second model call — generate final reply using tool results ───
-    response2 = call_ollama(history, model)
-    reply = response2.message.content or "[No response]"
+    # If the user is explicitly asking for a patient list/names, don't rely on
+    # the model to restate the tool output (small models often omit names).
+    if any(tc.function.name == "get_patients_today" for tc in tool_calls) and _user_is_asking_for_patient_list(user_input):
+        results = tool_results_by_name.get("get_patients_today", [])
+        reply = _reply_from_get_patients_tool_result(results[-1] if results else "")
+
+        if stream:
+            print("\n\nAssistant: " + reply + "\n")
+        # Non-stream tool-call turns already printed tool output above; print reply here.
+        if not stream:
+            print(f"\nAssistant: {reply}\n")
+        if (speech is not None) and speech.enabled:
+            speech.say(reply)
+
+        history.append({"role": "assistant", "content": reply})
+        turn_log["final_reply"] = reply
+        return reply, history, turn_log
+
+    if stream:
+        print("\n\nAssistant: ", end="", flush=True)
+        tts_buffer = ""
+
+        def on_second_chunk(delta: str):
+            nonlocal tts_buffer
+            print(delta, end="", flush=True)
+            if speech is not None and speech.enabled:
+                tts_buffer += delta
+                segments, remainder = _drain_speakable_segments(tts_buffer)
+                tts_buffer = remainder
+                for seg in segments:
+                    speech.say(seg)
+
+        reply, _ = call_ollama(history, model, stream=True, on_chunk=on_second_chunk)
+        if (speech is not None) and speech.enabled and tts_buffer.strip():
+            speech.say(tts_buffer.strip())
+        print("\n")
+    else:
+        reply, _ = call_ollama(history, model, stream=False)
+        print(f"\nAssistant: {reply}\n")
+        if (speech is not None) and speech.enabled:
+            speech.say(reply)
+
+    reply = reply or "[No response]"
     history.append({"role": "assistant", "content": reply})
     turn_log["final_reply"] = reply
 
@@ -461,6 +660,12 @@ def main():
                         help="Print available tools and exit")
     parser.add_argument("--no-tts", action="store_true",
                         help="Disable text-to-speech output")
+    parser.add_argument(
+        "--stream",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stream assistant output (default: enabled)",
+    )
     args = parser.parse_args()
 
     if args.list_tools:
@@ -470,6 +675,8 @@ def main():
     init_db()
 
     tts_enabled = not args.no_tts and _PIPER_AVAILABLE and DEFAULT_VOICE.exists()
+    speech = SpeechQueue(enabled=tts_enabled)
+    speech.start()
 
     print(f"\n{'─'*55}")
     print(f"  Clinical AI Tool Tester")
@@ -505,21 +712,21 @@ def main():
                 continue
 
             print("loading...", end="\r")
-            reply, history, turn_log = run_turn(user_input, history, args.model)
+            reply, history, turn_log = run_turn(
+                user_input,
+                history,
+                args.model,
+                stream=args.stream,
+                speech=speech,
+            )
             session_log["turns"].append(turn_log)
-
-            # Print tool calls if any
-            if turn_log["tool_calls"]:
-                for tc in turn_log["tool_calls"]:
-                    print(f"\n  ⚙  {tc['tool']}  args={tc['args']}")
-                    print(f"     → {tc['result']}")
-
-            print(f"\nAssistant: {reply}\n")
-
-            if tts_enabled:
-                speak(reply)
+            if not args.stream and not turn_log["tool_calls"]:
+                # In non-streaming mode, we still need to show the assistant reply.
+                # Tool-call turns are printed inside run_turn() so the ordering matches.
+                print(f"\nAssistant: {reply}\n")
 
     finally:
+        speech.close()
         if session_log["turns"]:
             json_path, txt_path = save_session(session_log)
             print(f"\nSession saved:")

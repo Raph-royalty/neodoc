@@ -1,0 +1,48 @@
+{
+  "session_start": "2026-05-11T14:31:19.566610",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-11T14:31:25.993311",
+      "user_input": "what patients did I see today?",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "shift": "all"
+          },
+          "result": "[RECORDS] 1 patient(s) for shift 'all' on 2026-05-11:\n  \u2022 Janet at 06:28 \u2014 Yesterday's visit"
+        }
+      ],
+      "final_reply": "You saw the following patients today. Please check their records."
+    },
+    {
+      "timestamp": "2026-05-11T14:34:09.473748",
+      "user_input": "repeat that",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "yesterday"
+          },
+          "result": "[RECORDS] No patients found for shift 'all' on 2026-05-10."
+        }
+      ],
+      "final_reply": "I apologize, there were no patients seen today. Please check the details of your shift or visit."
+    },
+    {
+      "timestamp": "2026-05-11T14:35:09.519199",
+      "user_input": "what patients did I see today. Tell me the names",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "shift": "all"
+          },
+          "result": "[RECORDS] 1 patient(s) for shift 'all' on 2026-05-11:\n  \u2022 Janet at 06:28 \u2014 Yesterday's visit"
+        }
+      ],
+      "final_reply": "You saw the following patients today. Please check their records."
+    }
+  ]
+}
