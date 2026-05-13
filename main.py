@@ -113,7 +113,7 @@ class SpeechListener:
     one chunk of detected speech.
     """
 
-    def __init__(self, model_size: str = DEFAULT_STT):
+    def __init__(self, model_size: str = DEFAULT_STT, device: int | str | None = None):
         if not _WHISPER_AVAILABLE:
             raise RuntimeError(
                 "faster-whisper is not installed. "
@@ -130,7 +130,20 @@ class SpeechListener:
         self._model = WhisperModel(model_size, device="cpu", compute_type="int8")
         print("ready.")
 
-        self._sample_rate  = _STT_SAMPLE_RATE
+        self._device      = device
+        self._sample_rate = _STT_SAMPLE_RATE
+
+        # Verify sample rate; fallback to device default if 16kHz fails (e.g. on some RPi mics)
+        try:
+            sd.check_input_settings(device=self._device, samplerate=self._sample_rate, channels=1)
+        except Exception:
+            try:
+                info = sd.query_devices(self._device, 'input')
+                self._sample_rate = int(info['default_samplerate'])
+                print(f"\n[STT] Note: 16kHz not supported natively. Using {self._sample_rate}Hz (will resample).")
+            except Exception as e:
+                print(f"\n[STT] Warning: Could not query device settings: {e}")
+
         self._chunk_frames = _STT_CHUNK_FRAMES
 
     # ── Public API ────────────────────────────────────────────────────
@@ -145,7 +158,22 @@ class SpeechListener:
             return None
 
         audio_np = np.concatenate(audio_chunks, axis=0).flatten().astype(np.float32)
+
+        # Resample to 16kHz if the hardware used a different rate
+        if self._sample_rate != 16_000:
+            audio_np = self._resample(audio_np, self._sample_rate, 16_000)
+
         return self._transcribe(audio_np)
+
+    def _resample(self, audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+        """Linear interpolation resampling using numpy."""
+        duration = len(audio) / orig_sr
+        target_len = int(duration * target_sr)
+        return np.interp(
+            np.linspace(0, duration, target_len, endpoint=False),
+            np.linspace(0, duration, len(audio), endpoint=False),
+            audio
+        ).astype(np.float32)
 
     # ── Recording ─────────────────────────────────────────────────────
 
@@ -168,6 +196,7 @@ class SpeechListener:
         print("[STT] Listening … (speak now)", flush=True)
 
         with sd.InputStream(
+            device=self._device,
             samplerate=self._sample_rate,
             channels=1,
             dtype="float32",
@@ -768,6 +797,17 @@ def list_tools():
         print(f"    {fn['description']}\n")
 
 
+def list_audio_devices():
+    """Print available audio input/output devices."""
+    if not _SOUNDDEVICE_AVAILABLE:
+        print("[ERROR] sounddevice not installed.")
+        return
+    print("\nAvailable Audio Devices:")
+    print(sd.query_devices())
+    print(f"\nDefault Input Device : {sd.default.device[0]}")
+    print(f"Default Output Device: {sd.default.device[1]}\n")
+
+
 def _get_user_input_voice(listener: "SpeechListener") -> str | None:
     """
     Attempt to capture and transcribe one voice utterance.
@@ -793,6 +833,10 @@ def main():
     parser.add_argument("--stt-model", default=DEFAULT_STT,
                         metavar="SIZE",
                         help=f"Whisper model size for STT: tiny|base|small (default: {DEFAULT_STT})")
+    parser.add_argument("--mic-device",
+                        help="Input device ID or name for microphone (see --list-devices)")
+    parser.add_argument("--list-devices", action="store_true",
+                        help="Show available audio devices and exit")
     parser.add_argument(
         "--stream",
         action=argparse.BooleanOptionalAction,
@@ -800,6 +844,10 @@ def main():
         help="Stream assistant output (default: enabled)",
     )
     args = parser.parse_args()
+
+    if args.list_devices:
+        list_audio_devices()
+        sys.exit(0)
 
     if args.list_tools:
         list_tools()
@@ -819,7 +867,14 @@ def main():
             print("[ERROR] Voice input requires faster-whisper and sounddevice.")
             print("  pip install faster-whisper sounddevice numpy --break-system-packages")
             sys.exit(1)
-        listener = SpeechListener(model_size=args.stt_model)
+        mic_device = args.mic_device or os.getenv("NEODOC_STT_DEVICE")
+        try:
+            # Try to parse as integer if possible
+            mic_device = int(mic_device)
+        except (ValueError, TypeError):
+            pass
+
+        listener = SpeechListener(model_size=args.stt_model, device=mic_device)
 
     # ── Banner ────────────────────────────────────────────────────────
     print(f"\n{'─'*55}")
