@@ -14,10 +14,12 @@ Usage:
 import argparse
 import io
 import json
+import os
 import tempfile
 import re
 import sqlite3
 import subprocess
+import shutil
 import sys
 import uuid
 import wave
@@ -37,7 +39,7 @@ except ImportError:
 # ─────────────────────────────────────────────
 
 
-DEFAULT_MODEL = "qwen3.5:0.8b"
+DEFAULT_MODEL = "granite4:350m"
 LOGS_DIR = Path("logs")
 DATA_DIR = Path("data")
 TOOLS_FILE = Path("tools.json")
@@ -96,25 +98,59 @@ def speak(text: str):
     voice = _load_piper_voice()
     if voice is None:
         return
+    tmp_path = None
     try:
-        # Write WAV to a temp file; afplay requires a real file path
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp_path = tmp.name
-            with wave.open(tmp_path, "wb") as wav_file:
+        # Write WAV to a temp file; audio players require a real file path
+        tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp_path = tmp_file.name
+        tmp_file.close()
+
+        with wave.open(tmp_path, "wb") as wav_file:
+            # Newer piper-tts uses synthesize_wav(); older versions used synthesize(text, wav_file)
+            if hasattr(voice, "synthesize_wav"):
+                voice.synthesize_wav(text, wav_file)
+            else:
                 wav_file.setnchannels(1)      # mono
                 wav_file.setsampwidth(2)      # 16-bit PCM
                 wav_file.setframerate(voice.config.sample_rate)
                 voice.synthesize(text, wav_file)
         # Play synchronously then remove the temp file
+        player = None
+        if sys.platform == "darwin":
+            player = shutil.which("afplay")
+        else:
+            # Linux: prefer the desktop audio stack (PipeWire/Pulse) before raw ALSA.
+            # This avoids cases where aplay targets a silent/non-default ALSA device.
+            player = (
+                shutil.which("pw-play")
+                or shutil.which("paplay")
+                or shutil.which("aplay")
+                or shutil.which("play")
+            )
+
+        if player is None:
+            raise FileNotFoundError("No audio player found (tried afplay/aplay/paplay/play).")
+
+        cmd = [player, tmp_path]
+        if os.path.basename(player) == "aplay":
+            # Optional ALSA device override, e.g. NEODOC_AUDIO_DEVICE=hw:0,0
+            device = os.getenv("NEODOC_AUDIO_DEVICE")
+            cmd = [player, "-q"]
+            if device:
+                cmd.extend(["-D", device])
+            cmd.append(tmp_path)
+
         subprocess.run(
-            ["afplay", tmp_path],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=True,
         )
-        Path(tmp_path).unlink(missing_ok=True)
     except Exception as e:
         print(f"[TTS] Playback error: {e}")
+    finally:
+        if tmp_path:
+            Path(tmp_path).unlink(missing_ok=True)
 
 
 # ─────────────────────────────────────────────
@@ -301,7 +337,6 @@ def call_ollama(messages: list, model: str) -> ollama.ChatResponse:
             model=model,
             messages=messages,
             tools=TOOLS,
-            think=False,        # disable chain-of-thought / thinking tokens
         )
     except ollama.ResponseError as e:
         print(f"\n[ERROR] Ollama returned an error: {e.error}")
@@ -469,7 +504,7 @@ def main():
                 print("[Conversation history cleared]\n")
                 continue
 
-            print("Thinking...", end="\r")
+            print("loading...", end="\r")
             reply, history, turn_log = run_turn(user_input, history, args.model)
             session_log["turns"].append(turn_log)
 

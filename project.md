@@ -69,16 +69,7 @@ All processing is **local (edge-based)** to ensure:
 
 ---
 
-### 4. Drug/Dosage Query (RAG)
-**Example:**
-> "What's the dose of amoxicillin for a child?"
-
-- Query local medical documents
-- Return safe, referenced answer
-
----
-
-### 5. Shift Summary Generation
+### 4. Shift Summary Generation
 **Example:**
 > "Summarise my shift"
 
@@ -156,8 +147,7 @@ Determines intent and action
 #### c. Reminder Tool
 - Schedules tasks using APScheduler
 
-#### d. RAG Tool
-- Retrieves medical knowledge
+
 
 ---
 

@@ -1,0 +1,11 @@
+Session: 2026-05-11T05:07:41.297732
+Model:   qwen3.5:0.8b
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-11T05:07:52.557282
+  You:       what patients did I see yesterday?
+  Assistant: I can retrieve the patient list for yesterday. 
+
+What date are you referring to? Please provide the date in YYYY-MM-DD format.
+

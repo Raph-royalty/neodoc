@@ -1,0 +1,17 @@
+Session: 2026-05-11T05:33:51.085804
+Model:   qwen3.5:0.8b
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-11T05:34:00.674132
+  You:       What tools do you have access to?
+  Assistant: I have access to the following tools to assist with your clinical tasks:
+
+*   **Log a patient visit**: I can record patient interactions, symptoms, or observations.
+*   **Retrieve patient lists**: I can retrieve a list of patients seen today, in the past, or for specific shifts.
+*   **Set reminders**: I can alert you to important actions, such as a check-in in a specific room.
+*   **Summarize shifts**: I can generate handover summaries or end-of-shift reports.
+*   **Log drug information**: I can retrieve drug information for your clinical tasks.
+
+How can I help you right now?
+

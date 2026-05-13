@@ -1,0 +1,27 @@
+{
+  "session_start": "2026-05-11T05:20:17.665762",
+  "model": "qwen3.5:0.8b",
+  "turns": [
+    {
+      "timestamp": "2026-05-11T05:20:26.614150",
+      "user_input": "What patients did I see today?",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "shift": "all",
+            "date": "today"
+          },
+          "result": "[RECORDS] No patients found for shift 'all' on 2026-05-11."
+        }
+      ],
+      "final_reply": "[No response]"
+    },
+    {
+      "timestamp": "2026-05-11T05:24:09.746897",
+      "user_input": "I have seen Jaden this morning at 10am add those to my records",
+      "tool_calls": [],
+      "final_reply": "I can't see the logs from yesterday. I can help with the current day of your shift. Please provide me with:\n\n- Patient names you want to record\n- The clinical notes/observations for each visit\n- The time of the visit\n\nPlease specify the patient names so I can proceed with logging the new records."
+    }
+  ]
+}
