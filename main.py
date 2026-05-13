@@ -1,14 +1,17 @@
 """
 Clinical AI Assistant — Tool Call Tester
 -----------------------------------------
-Tests tool calling with a local Ollama model via text prompts.
+Tests tool calling with a local Ollama model via text prompts or voice input.
 Results are saved to session logs (JSON + plain text summary).
-Tool output (patient logs, reminders) is persisted to JSON files under data/.
+Tool output (patient logs, reminders) is persisted to SQLite under data/.
 
 Usage:
-    python main.py                         # Default model
-    python main.py --model qwen3.5:0.8b   # Different model
-    python main.py --list-tools            # Show available tools
+    python main.py                              # Text mode, default model
+    python main.py --voice                      # Voice input (Faster-Whisper STT)
+    python main.py --voice --stt-model tiny     # Faster STT (less accurate)
+    python main.py --model qwen3.5:0.8b         # Different LLM
+    python main.py --list-tools                 # Show available tools
+    python main.py --no-tts                     # Disable TTS output
 """
 
 import argparse
@@ -30,23 +33,47 @@ from pathlib import Path
 
 import ollama
 
+# ── Optional: Piper TTS ───────────────────────────────────────────────────────
 try:
     from piper.voice import PiperVoice
     _PIPER_AVAILABLE = True
 except ImportError:
     _PIPER_AVAILABLE = False
 
+# ── Optional: Faster-Whisper STT ─────────────────────────────────────────────
+try:
+    from faster_whisper import WhisperModel
+    _WHISPER_AVAILABLE = True
+except ImportError:
+    _WHISPER_AVAILABLE = False
+
+# ── Optional: sounddevice (microphone capture) ────────────────────────────────
+try:
+    import sounddevice as sd
+    import numpy as np
+    _SOUNDDEVICE_AVAILABLE = True
+except ImportError:
+    _SOUNDDEVICE_AVAILABLE = False
+
+
 # ─────────────────────────────────────────────
 # Configuration
 # ─────────────────────────────────────────────
 
+DEFAULT_MODEL   = "granite4:350m"
+DEFAULT_STT     = "base"          # Whisper model size: tiny | base | small
+LOGS_DIR        = Path("logs")
+DATA_DIR        = Path("data")
+TOOLS_FILE      = Path("tools.json")
+VOICES_DIR      = Path("voices")
+DEFAULT_VOICE   = VOICES_DIR / "en_US-lessac-medium.onnx"
 
-DEFAULT_MODEL = "granite4:350m"
-LOGS_DIR = Path("logs")
-DATA_DIR = Path("data")
-TOOLS_FILE = Path("tools.json")
-VOICES_DIR = Path("voices")
-DEFAULT_VOICE = VOICES_DIR / "en_US-lessac-medium.onnx"
+# Microphone recording parameters
+_STT_SAMPLE_RATE      = 16_000   # Hz  — Whisper expects 16 kHz mono
+_STT_CHUNK_FRAMES     = 512      # ~32 ms per chunk at 16 kHz
+_STT_SILENCE_SECONDS  = 1.5      # stop recording after this much silence
+_STT_ENERGY_THRESHOLD = 0.01     # RMS threshold to distinguish speech from noise
+_STT_MAX_SECONDS      = 30       # hard cap per utterance
 
 SYSTEM_PROMPT = """You are a clinical assistant helping nurses and doctors in a ward setting.
 You have access to tools for logging patient visits, retrieving records,
@@ -72,7 +99,135 @@ TOOLS = load_tools()
 
 
 # ─────────────────────────────────────────────
-# Text-to-Speech (Piper)
+# Speech-to-Text  (Faster-Whisper + sounddevice)
+# ─────────────────────────────────────────────
+
+class SpeechListener:
+    """
+    Records microphone audio with voice-activity detection (VAD) and
+    transcribes it with Faster-Whisper.
+
+    The recorder captures audio in small chunks and tracks an RMS energy
+    level.  Recording starts immediately; it stops automatically once a
+    period of silence longer than _STT_SILENCE_SECONDS follows at least
+    one chunk of detected speech.
+    """
+
+    def __init__(self, model_size: str = DEFAULT_STT):
+        if not _WHISPER_AVAILABLE:
+            raise RuntimeError(
+                "faster-whisper is not installed. "
+                "Run:  pip install faster-whisper --break-system-packages"
+            )
+        if not _SOUNDDEVICE_AVAILABLE:
+            raise RuntimeError(
+                "sounddevice / numpy are not installed. "
+                "Run:  pip install sounddevice numpy --break-system-packages"
+            )
+
+        print(f"[STT] Loading Whisper '{model_size}' model … ", end="", flush=True)
+        # int8 quantisation keeps memory and CPU use low on the Pi
+        self._model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        print("ready.")
+
+        self._sample_rate  = _STT_SAMPLE_RATE
+        self._chunk_frames = _STT_CHUNK_FRAMES
+
+    # ── Public API ────────────────────────────────────────────────────
+
+    def listen(self) -> str | None:
+        """
+        Block until the user speaks and falls silent, then return the
+        transcribed text.  Returns None if nothing intelligible was heard.
+        """
+        audio_chunks = self._record_utterance()
+        if not audio_chunks:
+            return None
+
+        audio_np = np.concatenate(audio_chunks, axis=0).flatten().astype(np.float32)
+        return self._transcribe(audio_np)
+
+    # ── Recording ─────────────────────────────────────────────────────
+
+    def _record_utterance(self) -> list:
+        """
+        Record audio chunks until silence follows speech, or the hard cap
+        (_STT_MAX_SECONDS) is reached.  Returns a list of numpy arrays.
+        """
+        chunks:          list[np.ndarray] = []
+        speech_detected: bool             = False
+        silence_frames:  int              = 0
+        total_frames:    int              = 0
+
+        # silence_limit: how many consecutive silent chunks == end of utterance
+        silence_limit = int(
+            _STT_SILENCE_SECONDS * self._sample_rate / self._chunk_frames
+        )
+        max_frames = _STT_MAX_SECONDS * self._sample_rate
+
+        print("[STT] Listening … (speak now)", flush=True)
+
+        with sd.InputStream(
+            samplerate=self._sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=self._chunk_frames,
+        ) as stream:
+            while total_frames < max_frames:
+                data, _ = stream.read(self._chunk_frames)
+                total_frames += len(data)
+                rms = float(np.sqrt(np.mean(data ** 2)))
+
+                if rms >= _STT_ENERGY_THRESHOLD:
+                    speech_detected = True
+                    silence_frames  = 0
+                    chunks.append(data.copy())
+                elif speech_detected:
+                    # Collect silence frames too so Whisper has trailing context
+                    chunks.append(data.copy())
+                    silence_frames += 1
+                    if silence_frames >= silence_limit:
+                        break
+                # else: pre-speech silence — discard to save memory
+
+        if not speech_detected:
+            print("[STT] No speech detected.")
+            return []
+
+        print("[STT] Processing …", flush=True)
+        return chunks
+
+    # ── Transcription ─────────────────────────────────────────────────
+
+    def _transcribe(self, audio: "np.ndarray") -> str | None:
+        """Run Faster-Whisper on a float32 numpy array; return cleaned text."""
+        segments, info = self._model.transcribe(
+            audio,
+            language="en",          # hardcode to English; remove for auto-detect
+            beam_size=1,            # faster on CPU; raise to 5 for accuracy
+            vad_filter=True,        # Whisper-side VAD as a second pass
+            vad_parameters={
+                "min_silence_duration_ms": 500,
+                "speech_pad_ms": 200,
+            },
+        )
+
+        text = " ".join(seg.text for seg in segments).strip()
+
+        # Strip common Whisper hallucination artefacts on silence
+        _HALLUCINATION_RE = re.compile(
+            r"^\s*(?:thank you\.?|thanks\.?|you\.?|\.+|,+)\s*$",
+            re.IGNORECASE,
+        )
+        if not text or _HALLUCINATION_RE.match(text):
+            print("[STT] Nothing heard clearly.")
+            return None
+
+        return text
+
+
+# ─────────────────────────────────────────────
+# Text-to-Speech  (Piper)
 # ─────────────────────────────────────────────
 
 _piper_voice = None  # lazy-loaded singleton
@@ -102,27 +257,23 @@ def speak(text: str):
         return
     tmp_path = None
     try:
-        # Write WAV to a temp file; audio players require a real file path
         tmp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp_path = tmp_file.name
         tmp_file.close()
 
         with wave.open(tmp_path, "wb") as wav_file:
-            # Newer piper-tts uses synthesize_wav(); older versions used synthesize(text, wav_file)
             if hasattr(voice, "synthesize_wav"):
                 voice.synthesize_wav(text, wav_file)
             else:
-                wav_file.setnchannels(1)      # mono
-                wav_file.setsampwidth(2)      # 16-bit PCM
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
                 wav_file.setframerate(voice.config.sample_rate)
                 voice.synthesize(text, wav_file)
-        # Play synchronously then remove the temp file
+
         player = None
         if sys.platform == "darwin":
             player = shutil.which("afplay")
         else:
-            # Linux: prefer the desktop audio stack (PipeWire/Pulse) before raw ALSA.
-            # This avoids cases where aplay targets a silent/non-default ALSA device.
             player = (
                 shutil.which("pw-play")
                 or shutil.which("paplay")
@@ -135,7 +286,6 @@ def speak(text: str):
 
         cmd = [player, tmp_path]
         if os.path.basename(player) == "aplay":
-            # Optional ALSA device override, e.g. NEODOC_AUDIO_DEVICE=hw:0,0
             device = os.getenv("NEODOC_AUDIO_DEVICE")
             cmd = [player, "-q"]
             if device:
@@ -172,7 +322,8 @@ class SpeechQueue:
     def say(self, text: str) -> None:
         if not self.enabled:
             return
-        cleaned = (text or "").strip()
+        # Strip technical tags in brackets, e.g. [LOGGED], [RECORDS], [ID: 123]
+        cleaned = re.sub(r'\[.*?\]', '', text or "").strip()
         if not cleaned:
             return
         self._queue.put(cleaned)
@@ -184,12 +335,22 @@ class SpeechQueue:
         if self._thread is not None:
             self._thread.join(timeout=10)
 
+    def wait(self) -> None:
+        """Wait for all pending speech items to be processed."""
+        if not self.enabled:
+            return
+        self._queue.join()
+
     def _run(self) -> None:
         while True:
             item = self._queue.get()
             if item is None:
+                self._queue.task_done()
                 return
-            speak(item)
+            try:
+                speak(item)
+            finally:
+                self._queue.task_done()
 
 
 _STREAM_SPEAK_BOUNDARY_RE = re.compile(r"(?:(?<=[.!?])\s+)|\n+")
@@ -220,11 +381,9 @@ def _reply_from_get_patients_tool_result(result: str) -> str:
     if not result:
         return "[RECORDS] No patient records found."
     if "No patients found" in result:
-        # Already user-friendly enough.
         return result.replace("[RECORDS] ", "").strip()
     names = [n.strip() for n in _PATIENT_BULLET_RE.findall(result) if n.strip()]
     if not names:
-        # Fall back to echoing tool output if parsing fails.
         return result.replace("[RECORDS] ", "").strip()
     if len(names) == 1:
         return f"You saw {names[0]} today."
@@ -263,8 +422,6 @@ def init_db():
         """)
 
 
-
-# Shift time boundaries (24-h)
 _SHIFT_HOURS = {
     "morning":   (6,  12),
     "afternoon": (12, 18),
@@ -274,17 +431,11 @@ _SHIFT_HOURS = {
 
 
 def resolve_date(date_arg: str | None) -> str:
-    """
-    Resolve a date argument to a YYYY-MM-DD string.
-    Accepts: None / 'today' → today, 'yesterday' → yesterday,
-             or any YYYY-MM-DD string (returned as-is).
-    """
     now = datetime.now()
     if not date_arg or date_arg.lower() == "today":
         return now.strftime("%Y-%m-%d")
     if date_arg.lower() == "yesterday":
         return (now - timedelta(days=1)).strftime("%Y-%m-%d")
-    # Validate ISO format; fall back to today on parse error
     try:
         datetime.strptime(date_arg, "%Y-%m-%d")
         return date_arg
@@ -293,17 +444,12 @@ def resolve_date(date_arg: str | None) -> str:
 
 
 # ─────────────────────────────────────────────
-# Tool Executors  (JSON file-backed)
+# Tool Executors
 # ─────────────────────────────────────────────
 
 def execute_tool(tool_name: str, tool_args: dict) -> str:
-    """
-    Executes a tool call, persists data to JSON files, and returns a result string.
-    Swap the JSON helpers for SQLite/APScheduler when ready.
-    """
     now = datetime.now()
 
-    # ── log_patient ───────────────────────────────────────────────────
     if tool_name == "log_patient":
         visit_time = tool_args.get("time", now.strftime("%H:%M"))
         record = {
@@ -324,7 +470,6 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
             f"on {record['date']}. Note: {record['note']} (id: {record['id']})"
         )
 
-    # ── get_patients_today ────────────────────────────────────────────
     elif tool_name == "get_patients_today":
         shift = tool_args.get("shift", "all")
         query_date = resolve_date(tool_args.get("date"))
@@ -337,11 +482,10 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
         filtered = []
         for row in rows:
             entry = dict(row)
-            # Parse hour from stored time ("HH:MM" or freeform like "3pm")
             try:
                 hour = datetime.strptime(entry["time"], "%H:%M").hour
             except ValueError:
-                hour = -1  # keep freeform entries under "all"
+                hour = -1
             if shift == "all" or (start_h <= hour < end_h):
                 filtered.append(entry)
 
@@ -353,17 +497,16 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
             lines.append(f"  • {e['patient_name']} at {e['time']} — {e['note']}")
         return "\n".join(lines)
 
-    # ── set_reminder ──────────────────────────────────────────────────
     elif tool_name == "set_reminder":
         delay = int(tool_args["delay_minutes"])
         trigger_at = now + timedelta(minutes=delay)
         record = {
-            "id":           str(uuid.uuid4()),
-            "message":      tool_args["message"],
+            "id":            str(uuid.uuid4()),
+            "message":       tool_args["message"],
             "delay_minutes": delay,
-            "created_at":   now.isoformat(),
-            "trigger_at":   trigger_at.isoformat(),
-            "completed":    0
+            "created_at":    now.isoformat(),
+            "trigger_at":    trigger_at.isoformat(),
+            "completed":     0
         }
         with sqlite3.connect(DB_FILE) as conn:
             conn.execute(
@@ -375,7 +518,6 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
             f"(triggers at {trigger_at.strftime('%H:%M')}). id: {record['id']}"
         )
 
-    # ── summarise_shift ───────────────────────────────────────────────
     elif tool_name == "summarise_shift":
         fmt = tool_args.get("format", "brief")
         query_date = resolve_date(tool_args.get("date"))
@@ -399,7 +541,6 @@ def execute_tool(tool_name: str, tool_args: dict) -> str:
                 lines.append(f"  • [{e['time']}] {e['patient_name']} — {e['note']}")
             return "\n".join(lines)
 
-    # ── unknown ───────────────────────────────────────────────────────
     else:
         return f"[ERROR] Unknown tool: {tool_name}"
 
@@ -471,9 +612,9 @@ def run_turn(
     history.append({"role": "user", "content": user_input})
 
     turn_log = {
-        "timestamp": datetime.now().isoformat(),
-        "user_input": user_input,
-        "tool_calls": [],
+        "timestamp":   datetime.now().isoformat(),
+        "user_input":  user_input,
+        "tool_calls":  [],
         "final_reply": ""
     }
 
@@ -482,7 +623,6 @@ def run_turn(
     first_tool_calls: list = []
 
     if stream:
-        # Stream direct answers (no-tool turns) for faster UI/TTS.
         streamed_any = False
         tts_buffer = ""
 
@@ -501,7 +641,6 @@ def run_turn(
 
         first_content, first_tool_calls = call_ollama(history, model, stream=True, on_chunk=on_first_chunk)
         if streamed_any:
-            # Flush any leftover text to speech.
             if speech is not None and speech.enabled and tts_buffer.strip():
                 speech.say(tts_buffer.strip())
             print("\n")
@@ -511,12 +650,9 @@ def run_turn(
     tool_calls = first_tool_calls
 
     if not tool_calls:
-        # No tool needed — direct answer
         reply = first_content or "[No response]"
         history.append({"role": "assistant", "content": reply})
         turn_log["final_reply"] = reply
-
-        # If we didn't stream, speak the whole reply at once.
         if (not stream) and (speech is not None) and speech.enabled:
             speech.say(reply)
         return reply, history, turn_log
@@ -529,43 +665,26 @@ def run_turn(
     for tc in tool_calls:
         tool_name = tc.function.name
         tool_args = tc.function.arguments or {}
-
-        result = execute_tool(tool_name, tool_args)
+        result    = execute_tool(tool_name, tool_args)
 
         tool_results_by_name.setdefault(tool_name, []).append(result)
+        turn_log["tool_calls"].append({"tool": tool_name, "args": tool_args, "result": result})
 
-        # Log the tool call
-        turn_log["tool_calls"].append({
-            "tool": tool_name,
-            "args": tool_args,
-            "result": result
-        })
+        history.append({"role": "tool", "content": result, "tool_name": tool_name})
 
-        # Feed result back to model
-        history.append({
-            "role": "tool",
-            "content": result,
-            "tool_name": tool_name,
-        })
+        # Don't speak tool results directly; wait for the final assistant response.
+        # (Removed speech.say(result) here to avoid reading technical logs)
 
-        # Speak tool output immediately (so names/details are read even before the final reply).
-        if (speech is not None) and speech.enabled:
-            speech.say(result)
-
-        # Also show tool output immediately in the console.
         print(f"\n  ⚙  {tool_name}  args={tool_args}")
         print(f"     → {result}")
 
-    # ── Second model call — generate final reply using tool results ───
-    # If the user is explicitly asking for a patient list/names, don't rely on
-    # the model to restate the tool output (small models often omit names).
+    # ── Second model call ─────────────────────────────────────────────
     if any(tc.function.name == "get_patients_today" for tc in tool_calls) and _user_is_asking_for_patient_list(user_input):
         results = tool_results_by_name.get("get_patients_today", [])
         reply = _reply_from_get_patients_tool_result(results[-1] if results else "")
 
         if stream:
             print("\n\nAssistant: " + reply + "\n")
-        # Non-stream tool-call turns already printed tool output above; print reply here.
         if not stream:
             print(f"\nAssistant: {reply}\n")
         if (speech is not None) and speech.enabled:
@@ -602,7 +721,6 @@ def run_turn(
     reply = reply or "[No response]"
     history.append({"role": "assistant", "content": reply})
     turn_log["final_reply"] = reply
-
     return reply, history, turn_log
 
 
@@ -615,12 +733,10 @@ def save_session(session_log: dict):
     LOGS_DIR.mkdir(exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # JSON log (full detail)
     json_path = LOGS_DIR / f"session_{timestamp}.json"
     with open(json_path, "w") as f:
         json.dump(session_log, f, indent=2)
 
-    # Plain text summary
     txt_path = LOGS_DIR / f"session_{timestamp}.txt"
     with open(txt_path, "w") as f:
         f.write(f"Session: {session_log['session_start']}\n")
@@ -652,6 +768,18 @@ def list_tools():
         print(f"    {fn['description']}\n")
 
 
+def _get_user_input_voice(listener: "SpeechListener") -> str | None:
+    """
+    Attempt to capture and transcribe one voice utterance.
+    Returns the transcribed text, or None if nothing was heard.
+    Prints the heard text so the user can confirm what was understood.
+    """
+    text = listener.listen()
+    if text:
+        print(f"You (heard): {text}")
+    return text
+
+
 def main():
     parser = argparse.ArgumentParser(description="Clinical AI Tool Call Tester")
     parser.add_argument("--model", default=DEFAULT_MODEL,
@@ -660,6 +788,11 @@ def main():
                         help="Print available tools and exit")
     parser.add_argument("--no-tts", action="store_true",
                         help="Disable text-to-speech output")
+    parser.add_argument("--voice", action="store_true",
+                        help="Enable voice input via microphone (Faster-Whisper STT)")
+    parser.add_argument("--stt-model", default=DEFAULT_STT,
+                        metavar="SIZE",
+                        help=f"Whisper model size for STT: tiny|base|small (default: {DEFAULT_STT})")
     parser.add_argument(
         "--stream",
         action=argparse.BooleanOptionalAction,
@@ -674,39 +807,65 @@ def main():
 
     init_db()
 
+    # ── TTS setup ─────────────────────────────────────────────────────
     tts_enabled = not args.no_tts and _PIPER_AVAILABLE and DEFAULT_VOICE.exists()
     speech = SpeechQueue(enabled=tts_enabled)
     speech.start()
 
+    # ── STT setup ─────────────────────────────────────────────────────
+    listener: SpeechListener | None = None
+    if args.voice:
+        if not _WHISPER_AVAILABLE or not _SOUNDDEVICE_AVAILABLE:
+            print("[ERROR] Voice input requires faster-whisper and sounddevice.")
+            print("  pip install faster-whisper sounddevice numpy --break-system-packages")
+            sys.exit(1)
+        listener = SpeechListener(model_size=args.stt_model)
+
+    # ── Banner ────────────────────────────────────────────────────────
     print(f"\n{'─'*55}")
     print(f"  Clinical AI Tool Tester")
     print(f"  Model : {args.model}")
     print(f"  Logs  : ./{LOGS_DIR}/")
     print(f"  TTS   : {'enabled (Piper)' if tts_enabled else 'disabled'}")
+    print(f"  STT   : {'enabled (Whisper ' + args.stt_model + ')' if listener else 'disabled (text mode)'}")
     print(f"{'─'*55}")
-    print("  Type your prompt and press Enter.")
-    print("  Commands: 'quit' to exit | 'clear' to reset history")
+    if listener:
+        print("  Speak after the '[STT] Listening …' prompt.")
+        print("  Say 'quit' or 'exit' to end the session.")
+    else:
+        print("  Type your prompt and press Enter.")
+        print("  Commands: 'quit' to exit | 'clear' to reset history")
     print(f"{'─'*55}\n")
 
     history = [{"role": "system", "content": SYSTEM_PROMPT}]
     session_log = {
         "session_start": datetime.now().isoformat(),
-        "model": args.model,
-        "turns": []
+        "model":         args.model,
+        "turns":         []
     }
 
     try:
         while True:
-            try:
-                user_input = input("You: ").strip()
-            except (EOFError, KeyboardInterrupt):
-                break
+            # ── Get input: voice or keyboard ──────────────────────────
+            if listener:
+                user_input = _get_user_input_voice(listener)
+                if user_input is None:
+                    # Nothing heard — loop back and listen again
+                    continue
+            else:
+                try:
+                    user_input = input("You: ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    break
 
             if not user_input:
                 continue
-            if user_input.lower() == "quit":
+
+            # Shared exit / control commands (work in both text and voice mode)
+            cmd = user_input.lower().strip(" .")
+            if cmd in ("quit", "exit", "goodbye", "bye"):
                 break
-            if user_input.lower() == "clear":
+            if cmd == "clear":
                 history = [{"role": "system", "content": SYSTEM_PROMPT}]
                 print("[Conversation history cleared]\n")
                 continue
@@ -720,9 +879,13 @@ def main():
                 speech=speech,
             )
             session_log["turns"].append(turn_log)
+
+            # ── Wait for speech to finish before next loop iteration ──────
+            # This prevents the microphone from picking up the assistant's own voice.
+            if listener and speech:
+                speech.wait()
+
             if not args.stream and not turn_log["tool_calls"]:
-                # In non-streaming mode, we still need to show the assistant reply.
-                # Tool-call turns are printed inside run_turn() so the ordering matches.
                 print(f"\nAssistant: {reply}\n")
 
     finally:

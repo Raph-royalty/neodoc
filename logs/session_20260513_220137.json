@@ -1,0 +1,49 @@
+{
+  "session_start": "2026-05-13T22:01:03.089662",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-13T22:01:10.774557",
+      "user_input": "Add to the records I have seen John today at 3pm.",
+      "tool_calls": [
+        {
+          "tool": "log_patient",
+          "args": {
+            "patient_name": "John",
+            "note": "Today at 3pm"
+          },
+          "result": "[LOGGED] Patient 'John' saved at 22:01 on 2026-05-13. Note: Today at 3pm (id: 6bea7eec-d4ad-4527-a827-05cea9e861ba)"
+        }
+      ],
+      "final_reply": "The patient visit was logged successfully for John today at 3pm."
+    },
+    {
+      "timestamp": "2026-05-13T22:01:22.781386",
+      "user_input": "what's patience in this week.",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "week"
+          },
+          "result": "[RECORDS] 1 patient(s) for shift 'all' on 2026-05-13:\n  \u2022 John at 22:01 \u2014 Today at 3pm"
+        }
+      ],
+      "final_reply": "The records show that there are currently 1 patients seen today."
+    },
+    {
+      "timestamp": "2026-05-13T22:01:32.552388",
+      "user_input": "What's the name of the patient I saw today?",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "today"
+          },
+          "result": "[RECORDS] 1 patient(s) for shift 'all' on 2026-05-13:\n  \u2022 John at 22:01 \u2014 Today at 3pm"
+        }
+      ],
+      "final_reply": "You saw John today."
+    }
+  ]
+}
