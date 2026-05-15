@@ -1,0 +1,20 @@
+Session: 2026-05-14T07:33:03.495834
+Model:   granite4:350m
+Turns:   2
+============================================================
+
+[Turn 1] 2026-05-14T07:33:09.078805
+  You:       Who did I say today?
+  Tool:      get_patients_today({'date': 'today'})
+  Result:    [RECORDS] 3 patient(s) for shift 'all' on 2026-05-14:
+  • Jen at 00:04 — A new patient in room 12.
+  • Jane at 00:05 — Fever detected
+  • Patient Name 2026-05-14 at 07:31 — John has a new patient in room 12
+  Assistant: You saw these patients today: Jen, Jane, Patient Name 2026-05-14.
+
+[Turn 2] 2026-05-14T07:33:29.231865
+  You:       The lead patient's name is 2026-0514.
+  Tool:      log_patient({'patient_name': '2026-0514', 'note': 'Lead patient in room 12'})
+  Result:    [LOGGED] Patient '2026-0514' saved at 07:33 on 2026-05-14. Note: Lead patient in room 12 (id: 3f436c6a-6cbc-44dc-ad63-5a4f312ee539)
+  Assistant: Your log entry for the lead patient has been successfully recorded.
+

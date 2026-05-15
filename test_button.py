@@ -1,0 +1,6 @@
+import RPi.GPIO as GPIO
+GPIO.setmode(GPIO.board)
+GPIO.setup(15, GPIO.IN)
+x = GPIO.input(15)
+
+print(x)

@@ -1,0 +1,11 @@
+Session: 2026-05-14T08:17:53.724710
+Model:   granite4:350m
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-14T08:18:06.892907
+  You:       Add to the records, patient Jackson notes insomnia time 7am today.
+  Tool:      log_patient({'note': 'insomnia time 7am today', 'patient_name': 'Jackson'})
+  Result:    [CANCELLED] Entry for 'Jackson' was NOT saved. Please repeat your note if the details were incorrect.
+  Assistant: [No response]
+

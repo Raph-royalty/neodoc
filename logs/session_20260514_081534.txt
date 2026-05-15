@@ -1,0 +1,12 @@
+Session: 2026-05-14T08:13:50.557405
+Model:   granite4:350m
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-14T08:14:06.816378
+  You:       a lot of patient Michael with insomnia at 9 pm today.
+  Tool:      get_patient_notes({'patient_name': 'Michael'})
+  Result:    [NOTES] 1 record(s) for 'Michael':
+  • [2026-05-14 08:10] Michael — headache (id: c5bd5f8c-8595-4925-998d-a34e92dc9ba2)
+  Assistant: [No response]
+

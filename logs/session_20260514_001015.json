@@ -1,0 +1,18 @@
+{
+  "session_start": "2026-05-14T00:09:52.204951",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-14T00:09:59.295328",
+      "user_input": "What are the notes from my patients today?",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {},
+          "result": "[RECORDS] 2 patient(s) for shift 'all' on 2026-05-14:\n  \u2022 Jen at 00:04 \u2014 A new patient in room 12.\n  \u2022 Jane at 00:05 \u2014 Fever detected"
+        }
+      ],
+      "final_reply": "You saw these patients today: Jen, Jane."
+    }
+  ]
+}

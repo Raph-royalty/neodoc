@@ -3,21 +3,21 @@
     "type": "function",
     "function": {
       "name": "log_patient",
-      "description": "Log a patient visit or clinical note. Use when the user wants to record a patient interaction, symptom, or observation.",
+      "description": "Log a patient visit or clinical note into the system. Use this whenever the user wants to record a new patient interaction, complaint, symptom, vital sign, or clinical observation. Examples: 'log Jane — fever 38.5°C', 'note that Bed 3 received paracetamol at 2pm', 'record that Mr. Smith is complaining of chest pain'.",
       "parameters": {
         "type": "object",
         "properties": {
           "patient_name": {
             "type": "string",
-            "description": "Name or identifier of the patient (e.g. 'Mary', 'Bed 4')"
+            "description": "Name or identifier of the patient (e.g. 'Mary', 'Bed 4', 'Mr. Smith'). Use exactly what the user said."
           },
           "note": {
             "type": "string",
-            "description": "Clinical note or description of the visit/symptom"
+            "description": "The full clinical note, observation, or description to record. Be thorough — include symptoms, vitals, medications given, or any actions taken."
           },
           "time": {
             "type": "string",
-            "description": "Time of the visit, e.g. '3pm' or '15:00'. Defaults to now if not specified."
+            "description": "Time of the visit or observation, e.g. '14:30', '3pm', 'now'. Defaults to the current time if not specified."
           }
         },
         "required": ["patient_name", "note"]
@@ -28,14 +28,14 @@
     "type": "function",
     "function": {
       "name": "get_patients_today",
-      "description": "Retrieve the list of patients seen on a given date or during a specific shift. Use when the user asks who they saw, their patient list, or wants a recall of visits — including yesterday or any past date.",
+      "description": "Retrieve the full list of patients seen on a given date or during a specific shift. Use when the user asks: who have I seen, list my patients, who was logged today/yesterday, show me this morning's patients, etc.",
       "parameters": {
         "type": "object",
         "properties": {
           "shift": {
             "type": "string",
             "enum": ["morning", "afternoon", "evening", "all"],
-            "description": "Which shift to retrieve patients for. Defaults to 'all'."
+            "description": "Which shift to retrieve patients for. Use 'morning' (06:00–12:00), 'afternoon' (12:00–18:00), 'evening' (18:00–00:00), or 'all' for the full day. Defaults to 'all'."
           },
           "date": {
             "type": "string",
@@ -49,18 +49,81 @@
   {
     "type": "function",
     "function": {
+      "name": "get_patient_notes",
+      "description": "Retrieve all logged notes for a specific patient by name. Use when the user asks what was noted, documented, or recorded for a particular patient. Examples: 'what was logged for Jane?', 'show me Jane's notes', 'what is the note for Bed 4?', 'what did we record about Mr. Smith?'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patient_name": {
+            "type": "string",
+            "description": "Name or identifier of the patient to look up (e.g. 'Jane', 'Bed 4'). Case-insensitive partial match is supported."
+          },
+          "date": {
+            "type": "string",
+            "description": "Optional date filter in YYYY-MM-DD format, or 'today' / 'yesterday'. Leave blank to search all dates."
+          }
+        },
+        "required": ["patient_name"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "update_patient_note",
+      "description": "Amend or correct the clinical note of a previously logged patient entry. Use when the user wants to edit, correct, or update a note that was already saved. Examples: 'correct Jane's note', 'update the note for Bed 4 to say high fever', 'change the record for Mr. Smith'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "patient_name": {
+            "type": "string",
+            "description": "Name or identifier of the patient whose most recent log entry should be updated."
+          },
+          "new_note": {
+            "type": "string",
+            "description": "The corrected or updated clinical note to replace the existing one."
+          },
+          "date": {
+            "type": "string",
+            "description": "Optional date of the entry to update (YYYY-MM-DD, 'today', or 'yesterday'). Defaults to today."
+          }
+        },
+        "required": ["patient_name", "new_note"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "delete_patient_log",
+      "description": "Delete a specific patient log entry by its ID. Use when the user wants to remove an incorrect or duplicate entry. The ID can be found in the result of get_patient_notes or a previous log_patient response.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "description": "The unique UUID of the log entry to delete, e.g. '9719ffb2-eff3-4584-bc85-437d45564c0d'."
+          }
+        },
+        "required": ["entry_id"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
       "name": "set_reminder",
-      "description": "Set a timed reminder or alert for the clinician. Use when the user says 'remind me', 'check on', or 'alert me in X minutes/hours'.",
+      "description": "Set a timed clinical reminder or alert. Use when the user says 'remind me', 'check on', 'alert me in X minutes', 'don't let me forget', etc. Examples: 'remind me to check Jane's drip in 30 minutes', 'alert me in an hour to give Bed 4 his medication'.",
       "parameters": {
         "type": "object",
         "properties": {
           "message": {
             "type": "string",
-            "description": "What the reminder is about, e.g. 'Check on patient in Bed 4'"
+            "description": "The reminder message, including patient name and action if relevant, e.g. 'Check Bed 4 IV drip' or 'Administer paracetamol to Jane'."
           },
           "delay_minutes": {
             "type": "integer",
-            "description": "How many minutes from now to trigger the reminder"
+            "description": "How many minutes from now to trigger the reminder. Convert hours to minutes (e.g. 1 hour = 60 minutes)."
           }
         },
         "required": ["message", "delay_minutes"]
@@ -71,14 +134,14 @@
     "type": "function",
     "function": {
       "name": "summarise_shift",
-      "description": "Generate a handover summary of a shift's notes and patient visits. Use when the user asks for a shift summary, handover notes, or an end-of-shift report — including for yesterday or any past date.",
+      "description": "Generate a structured summary or handover report for a shift's patient notes. Use when the user asks for a shift summary, handover notes, end-of-shift report, or wants an overview of what happened during a shift.",
       "parameters": {
         "type": "object",
         "properties": {
           "format": {
             "type": "string",
             "enum": ["brief", "detailed", "handover"],
-            "description": "The style of summary. 'handover' is formatted for the next shift."
+            "description": "Style of the summary: 'brief' = one-line per patient; 'detailed' = full notes per patient; 'handover' = structured format ready for the next shift."
           },
           "date": {
             "type": "string",

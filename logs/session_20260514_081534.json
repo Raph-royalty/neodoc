@@ -1,0 +1,20 @@
+{
+  "session_start": "2026-05-14T08:13:50.557405",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-14T08:14:06.816378",
+      "user_input": "a lot of patient Michael with insomnia at 9 pm today.",
+      "tool_calls": [
+        {
+          "tool": "get_patient_notes",
+          "args": {
+            "patient_name": "Michael"
+          },
+          "result": "[NOTES] 1 record(s) for 'Michael':\n  \u2022 [2026-05-14 08:10] Michael \u2014 headache (id: c5bd5f8c-8595-4925-998d-a34e92dc9ba2)"
+        }
+      ],
+      "final_reply": "[No response]"
+    }
+  ]
+}

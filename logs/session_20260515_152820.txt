@@ -1,0 +1,17 @@
+Session: 2026-05-15T15:27:37.854797
+Model:   granite4:350m
+Turns:   2
+============================================================
+
+[Turn 1] 2026-05-15T15:27:43.851814
+  You:       We did AC today.
+  Tool:      get_patients_today({'date': 'today'})
+  Result:    [RECORDS] No patients found for shift 'all' on 2026-05-15.
+  Assistant: Please provide the name of a patient to look up.
+
+[Turn 2] 2026-05-15T15:28:10.323632
+  You:       What did you see today?
+  Tool:      get_patient_notes({'patient_name': 'Bed 4'})
+  Result:    [NOTES] No records found for patient matching 'Bed 4'.
+  Assistant: I'm sorry, I couldn't find any notes for Bed 4 today. What is the name of the shift you were on?
+

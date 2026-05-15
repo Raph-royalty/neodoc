@@ -1,0 +1,34 @@
+{
+  "session_start": "2026-05-15T15:27:37.854797",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-15T15:27:43.851814",
+      "user_input": "We did AC today.",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "today"
+          },
+          "result": "[RECORDS] No patients found for shift 'all' on 2026-05-15."
+        }
+      ],
+      "final_reply": "Please provide the name of a patient to look up."
+    },
+    {
+      "timestamp": "2026-05-15T15:28:10.323632",
+      "user_input": "What did you see today?",
+      "tool_calls": [
+        {
+          "tool": "get_patient_notes",
+          "args": {
+            "patient_name": "Bed 4"
+          },
+          "result": "[NOTES] No records found for patient matching 'Bed 4'."
+        }
+      ],
+      "final_reply": "I'm sorry, I couldn't find any notes for Bed 4 today. What is the name of the shift you were on?"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "session_start": "2026-05-14T08:17:25.809861",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-14T08:17:39.078359",
+      "user_input": "Love patient Jackson, within some year at 7am today.",
+      "tool_calls": [
+        {
+          "tool": "get_patient_notes",
+          "args": {
+            "patient_name": "Jackson"
+          },
+          "result": "[NOTES] No records found for patient matching 'Jackson'."
+        }
+      ],
+      "final_reply": "I'm sorry, but I couldn't find any notes for patient Jackson. Could you please provide the correct details?"
+    }
+  ]
+}

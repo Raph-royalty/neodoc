@@ -1,0 +1,21 @@
+{
+  "session_start": "2026-05-14T08:17:53.724710",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-14T08:18:06.892907",
+      "user_input": "Add to the records, patient Jackson notes insomnia time 7am today.",
+      "tool_calls": [
+        {
+          "tool": "log_patient",
+          "args": {
+            "note": "insomnia time 7am today",
+            "patient_name": "Jackson"
+          },
+          "result": "[CANCELLED] Entry for 'Jackson' was NOT saved. Please repeat your note if the details were incorrect."
+        }
+      ],
+      "final_reply": "[No response]"
+    }
+  ]
+}

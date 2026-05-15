@@ -1,0 +1,15 @@
+Session: 2026-05-14T07:34:54.139002
+Model:   granite4:350m
+Turns:   1
+============================================================
+
+[Turn 1] 2026-05-14T07:35:03.594408
+  You:       which patients have I seen today.
+  Tool:      get_patients_today({'date': 'today'})
+  Result:    [RECORDS] 4 patient(s) for shift 'all' on 2026-05-14:
+  • Jen at 00:04 — A new patient in room 12.
+  • Jane at 00:05 — Fever detected
+  • Patient Name 2026-05-14 at 07:31 — John has a new patient in room 12
+  • 2026-0514 at 07:33 — Lead patient in room 12
+  Assistant: You saw these patients today: Jen, Jane, Patient Name 2026-05-14, 2026-0514.
+

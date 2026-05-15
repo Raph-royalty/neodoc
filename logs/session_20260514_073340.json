@@ -1,0 +1,35 @@
+{
+  "session_start": "2026-05-14T07:33:03.495834",
+  "model": "granite4:350m",
+  "turns": [
+    {
+      "timestamp": "2026-05-14T07:33:09.078805",
+      "user_input": "Who did I say today?",
+      "tool_calls": [
+        {
+          "tool": "get_patients_today",
+          "args": {
+            "date": "today"
+          },
+          "result": "[RECORDS] 3 patient(s) for shift 'all' on 2026-05-14:\n  \u2022 Jen at 00:04 \u2014 A new patient in room 12.\n  \u2022 Jane at 00:05 \u2014 Fever detected\n  \u2022 Patient Name 2026-05-14 at 07:31 \u2014 John has a new patient in room 12"
+        }
+      ],
+      "final_reply": "You saw these patients today: Jen, Jane, Patient Name 2026-05-14."
+    },
+    {
+      "timestamp": "2026-05-14T07:33:29.231865",
+      "user_input": "The lead patient's name is 2026-0514.",
+      "tool_calls": [
+        {
+          "tool": "log_patient",
+          "args": {
+            "patient_name": "2026-0514",
+            "note": "Lead patient in room 12"
+          },
+          "result": "[LOGGED] Patient '2026-0514' saved at 07:33 on 2026-05-14. Note: Lead patient in room 12 (id: 3f436c6a-6cbc-44dc-ad63-5a4f312ee539)"
+        }
+      ],
+      "final_reply": "Your log entry for the lead patient has been successfully recorded."
+    }
+  ]
+}
